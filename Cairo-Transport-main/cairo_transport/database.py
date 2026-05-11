@@ -49,9 +49,12 @@ from .data import (
 from .graph import TransportGraph
 
 if os.environ.get("VERCEL"):
+    # In Vercel, use /tmp which is writable in serverless functions
     DB_PATH = "/tmp/cairo_transport.db"
+    print(f"[DB] Running in Vercel environment, using {DB_PATH}")
 else:
     DB_PATH = Path(os.environ.get("CAIRO_TRANSPORT_DB_PATH", Path(__file__).parent / "cairo_transport.db"))
+    print(f"[DB] Using database path: {DB_PATH}")
 
 
 # ---------------------------------------------------------------------------
@@ -150,100 +153,113 @@ class TransportDB:
 
         Set force=True to wipe and re-seed.
         """
-        if force:
-            self.con.executescript("""
-                DELETE FROM transport_demand;
-                DELETE FROM bus_stops;
-                DELETE FROM bus_routes;
-                DELETE FROM metro_stations;
-                DELETE FROM metro_lines;
-                DELETE FROM traffic_flows;
-                DELETE FROM roads;
-                DELETE FROM nodes;
-            """)
+        try:
+            if force:
+                self.con.executescript("""
+                    DELETE FROM transport_demand;
+                    DELETE FROM bus_stops;
+                    DELETE FROM bus_routes;
+                    DELETE FROM metro_stations;
+                    DELETE FROM metro_lines;
+                    DELETE FROM traffic_flows;
+                    DELETE FROM roads;
+                    DELETE FROM nodes;
+                """)
+                self.con.commit()
+
+            # Skip if already seeded
+            count = self.con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
+            if count > 0:
+                print(f"[DB] Already seeded with {count} nodes — skipping. Pass force=True to re-seed.")
+                return
+
+            print("[DB] Starting database seeding...")
+            cur = self.con
+
+            # nodes
+            for d in DISTRICTS:
+                cur.execute(
+                    "INSERT OR IGNORE INTO nodes VALUES (?,?,?,?,?,?)",
+                    (d["id"], d["name"], d["population"], d["type"], d["x"], d["y"]),
+                )
+            for f in FACILITIES:
+                cur.execute(
+                    "INSERT OR IGNORE INTO nodes VALUES (?,?,?,?,?,?)",
+                    (f["id"], f["name"], 0, f["type"], f["x"], f["y"]),
+                )
+
+            traffic = traffic_lookup()
+
+            # existing roads
+            for r in EXISTING_ROADS:
+                road_id = f"{r['from']}-{r['to']}"
+                cur.execute(
+                    "INSERT OR IGNORE INTO roads VALUES (?,?,?,?,?,?,1,NULL)",
+                    (road_id, r["from"], r["to"], r["distance_km"], r["capacity"], r["condition"]),
+                )
+                for slot in TIME_SLOTS:
+                    flow = traffic.get(road_id, {}).get(slot, 0)
+                    cur.execute(
+                        "INSERT OR IGNORE INTO traffic_flows VALUES (?,?,?)",
+                        (road_id, slot, flow),
+                    )
+
+            # candidate roads
+            for r in CANDIDATE_ROADS:
+                road_id = f"{r['from']}-{r['to']}"
+                cur.execute(
+                    "INSERT OR IGNORE INTO roads VALUES (?,?,?,?,?,8,0,?)",
+                    (road_id, r["from"], r["to"], r["distance_km"], r["capacity"], r["construction_cost"]),
+                )
+                for slot in TIME_SLOTS:
+                    cur.execute(
+                        "INSERT OR IGNORE INTO traffic_flows VALUES (?,?,0)",
+                        (road_id, slot),
+                    )
+
+            # metro
+            for line in METRO_LINES:
+                cur.execute(
+                    "INSERT OR IGNORE INTO metro_lines VALUES (?,?,?)",
+                    (line["id"], line["name"], line["daily_passengers"]),
+                )
+                for seq, station in enumerate(line["stations"]):
+                    cur.execute(
+                        "INSERT OR IGNORE INTO metro_stations VALUES (?,?,?)",
+                        (line["id"], station, seq),
+                    )
+
+            # bus
+            for route in BUS_ROUTES:
+                cur.execute(
+                    "INSERT OR IGNORE INTO bus_routes VALUES (?,?,?)",
+                    (route["id"], route["buses_assigned"], route["daily_passengers"]),
+                )
+                for seq, stop in enumerate(route["stops"]):
+                    cur.execute(
+                        "INSERT OR IGNORE INTO bus_stops VALUES (?,?,?)",
+                        (route["id"], stop, seq),
+                    )
+
+            # demand
+            for d in PUBLIC_TRANSPORT_DEMAND:
+                cur.execute(
+                    "INSERT OR IGNORE INTO transport_demand VALUES (?,?,?)",
+                    (d["from"], d["to"], d["daily_passengers"]),
+                )
+
             self.con.commit()
-
-        # Skip if already seeded
-        if self.con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0] > 0:
-            print("[DB] Already seeded — skipping. Pass force=True to re-seed.")
-            return
-
-        cur = self.con
-
-        # nodes
-        for d in DISTRICTS:
-            cur.execute(
-                "INSERT OR IGNORE INTO nodes VALUES (?,?,?,?,?,?)",
-                (d["id"], d["name"], d["population"], d["type"], d["x"], d["y"]),
-            )
-        for f in FACILITIES:
-            cur.execute(
-                "INSERT OR IGNORE INTO nodes VALUES (?,?,?,?,?,?)",
-                (f["id"], f["name"], 0, f["type"], f["x"], f["y"]),
-            )
-
-        traffic = traffic_lookup()
-
-        # existing roads
-        for r in EXISTING_ROADS:
-            road_id = f"{r['from']}-{r['to']}"
-            cur.execute(
-                "INSERT OR IGNORE INTO roads VALUES (?,?,?,?,?,?,1,NULL)",
-                (road_id, r["from"], r["to"], r["distance_km"], r["capacity"], r["condition"]),
-            )
-            for slot in TIME_SLOTS:
-                flow = traffic.get(road_id, {}).get(slot, 0)
-                cur.execute(
-                    "INSERT OR IGNORE INTO traffic_flows VALUES (?,?,?)",
-                    (road_id, slot, flow),
-                )
-
-        # candidate roads
-        for r in CANDIDATE_ROADS:
-            road_id = f"{r['from']}-{r['to']}"
-            cur.execute(
-                "INSERT OR IGNORE INTO roads VALUES (?,?,?,?,?,8,0,?)",
-                (road_id, r["from"], r["to"], r["distance_km"], r["capacity"], r["construction_cost"]),
-            )
-            for slot in TIME_SLOTS:
-                cur.execute(
-                    "INSERT OR IGNORE INTO traffic_flows VALUES (?,?,0)",
-                    (road_id, slot),
-                )
-
-        # metro
-        for line in METRO_LINES:
-            cur.execute(
-                "INSERT OR IGNORE INTO metro_lines VALUES (?,?,?)",
-                (line["id"], line["name"], line["daily_passengers"]),
-            )
-            for seq, station in enumerate(line["stations"]):
-                cur.execute(
-                    "INSERT OR IGNORE INTO metro_stations VALUES (?,?,?)",
-                    (line["id"], station, seq),
-                )
-
-        # bus
-        for route in BUS_ROUTES:
-            cur.execute(
-                "INSERT OR IGNORE INTO bus_routes VALUES (?,?,?)",
-                (route["id"], route["buses_assigned"], route["daily_passengers"]),
-            )
-            for seq, stop in enumerate(route["stops"]):
-                cur.execute(
-                    "INSERT OR IGNORE INTO bus_stops VALUES (?,?,?)",
-                    (route["id"], stop, seq),
-                )
-
-        # demand
-        for d in PUBLIC_TRANSPORT_DEMAND:
-            cur.execute(
-                "INSERT OR IGNORE INTO transport_demand VALUES (?,?,?)",
-                (d["from"], d["to"], d["daily_passengers"]),
-            )
-
-        self.con.commit()
-        print(f"[DB] Seeded successfully → {self.db_path}")
+            
+            # Verify seeding
+            node_count = self.con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
+            road_count = self.con.execute("SELECT COUNT(*) FROM roads").fetchone()[0]
+            print(f"[DB] Seeded successfully → {self.db_path}")
+            print(f"[DB] Loaded {node_count} nodes and {road_count} roads")
+        except Exception as e:
+            print(f"[DB] Error during seeding: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
     # ------------------------------------------------------------------
     # Node queries

@@ -39,27 +39,42 @@ from cairo_transport.visual_runners import run_visual_trace
 db: TransportDB | None = None
 graph: TransportGraph | None = None
 _initialized = False
+_init_lock = None
 
 
 def initialize_app():
     """Initialize database and graph. Called on first request."""
-    global db, graph, _initialized
-    if _initialized:
-        return
+    global db, graph, _initialized, _init_lock
     
-    import sqlite3
-    from cairo_transport.database import DB_PATH
+    # Thread-safe initialization
+    if _init_lock is None:
+        import threading
+        _init_lock = threading.Lock()
     
-    # Create DB with check_same_thread=False so FastAPI threadpool can access it
-    db = TransportDB.__new__(TransportDB)
-    db.db_path = DB_PATH
-    db.con = sqlite3.connect(DB_PATH, check_same_thread=False)
-    db.con.row_factory = sqlite3.Row
-    db.con.execute("PRAGMA foreign_keys = ON")
-    db._apply_schema()
-    db.seed_from_data_module()
-    graph = db.build_graph()
-    _initialized = True
+    with _init_lock:
+        if _initialized:
+            return
+        
+        try:
+            import sqlite3
+            from cairo_transport.database import DB_PATH
+            
+            # Create DB with check_same_thread=False so FastAPI threadpool can access it
+            db = TransportDB.__new__(TransportDB)
+            db.db_path = DB_PATH
+            db.con = sqlite3.connect(DB_PATH, check_same_thread=False)
+            db.con.row_factory = sqlite3.Row
+            db.con.execute("PRAGMA foreign_keys = ON")
+            db._apply_schema()
+            db.seed_from_data_module()
+            graph = db.build_graph()
+            _initialized = True
+            print(f"[API] Successfully initialized database at {DB_PATH}")
+        except Exception as e:
+            print(f"[API] Failed to initialize database: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
 
 @asynccontextmanager
@@ -85,9 +100,45 @@ app.add_middleware(
 @app.middleware("http")
 async def ensure_initialized(request, call_next):
     """Ensure database is initialized before handling requests."""
-    initialize_app()
+    try:
+        initialize_app()
+    except Exception as e:
+        print(f"[API] Initialization error in middleware: {e}")
+        # Continue anyway - the route handlers will return 503 if needed
     response = await call_next(request)
     return response
+
+
+# ---------------------------------------------------------------------------
+# Health check endpoint
+# ---------------------------------------------------------------------------
+@app.get("/")
+@app.get("/health")
+def health_check():
+    """Health check endpoint to verify API is running and database is initialized."""
+    status = {
+        "status": "healthy",
+        "database_initialized": _initialized,
+        "graph_loaded": graph is not None,
+        "db_connected": db is not None,
+    }
+    
+    if not _initialized or graph is None or db is None:
+        status["status"] = "initializing"
+        return status
+    
+    try:
+        # Quick database check
+        node_count = len(graph.nodes)
+        edge_count = len(graph.get_all_edges())
+        status["node_count"] = node_count
+        status["edge_count"] = edge_count
+    except Exception as e:
+        status["status"] = "unhealthy"
+        status["error"] = str(e)
+        raise HTTPException(status_code=503, detail=f"Database health check failed: {e}")
+    
+    return status
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +208,8 @@ class AlgorithmRaceRequest(BaseModel):
 @app.get("/network/summary")
 def network_summary():
     """High-level graph statistics."""
-    assert graph is not None
+    if graph is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     nodes = list(graph.nodes.values())
     existing_edges = graph.get_all_edges(existing_only=True)
     all_edges = graph.get_all_edges()
@@ -193,7 +245,8 @@ def network_summary():
 @app.get("/network/nodes")
 def network_nodes():
     """Return all nodes with their full data."""
-    assert graph is not None
+    if graph is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     result = []
     for node in graph.nodes.values():
         # Count connected existing edges
@@ -213,7 +266,8 @@ def network_nodes():
 @app.get("/network/edges")
 def network_edges():
     """Return all edges with traffic data."""
-    assert graph is not None
+    if graph is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     result = []
     for edge in graph.get_all_edges():
         result.append({
@@ -234,26 +288,30 @@ def network_edges():
 # ---------------------------------------------------------------------------
 @app.get("/db/summary")
 def db_summary():
-    assert db is not None
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     return db.network_summary()
 
 
 @app.get("/db/demand-pairs")
 def db_demand_pairs():
-    assert db is not None
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     return db.top_demand_pairs(limit=10)
 
 
 @app.get("/db/bus-routes")
 def db_bus_routes():
-    assert db is not None
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     return db.get_bus_routes()
 
 
 @app.get("/db/all-contents")
 def db_all_contents():
     """Return all database contents as JSON for the frontend."""
-    assert db is not None
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     nodes = [dict(n) for n in db.get_all_nodes()]
     existing_roads = [dict(r) for r in db.get_all_roads(existing_only=True)]
     candidate_roads = [dict(r) for r in db.get_candidate_roads()]
@@ -275,7 +333,8 @@ def db_all_contents():
 # ---------------------------------------------------------------------------
 @app.post("/algorithms/shortest-path")
 def algo_shortest_path(req: ShortestPathRequest):
-    assert graph is not None
+    if graph is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     try:
         cost, path, report = dijkstra(graph, req.source, req.target, req.time_of_day)
     except KeyError as exc:
@@ -341,7 +400,8 @@ def algo_shortest_path(req: ShortestPathRequest):
 
 @app.post("/algorithms/emergency-routing")
 def algo_emergency(req: EmergencyRequest):
-    assert graph is not None
+    if graph is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     try:
         path, estimated_time, explored = astar_emergency(graph, req.incident_node)
     except KeyError as exc:
@@ -372,7 +432,8 @@ def algo_emergency(req: EmergencyRequest):
 
 @app.post("/algorithms/mst")
 def algo_mst():
-    assert graph is not None
+    if graph is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     result = modified_kruskal_mst(graph)
 
     edges_data = []
@@ -403,7 +464,8 @@ def algo_mst():
 
 @app.post("/algorithms/bus-allocation")
 def algo_bus_allocation(req: BusAllocationRequest):
-    assert db is not None
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     routes = db.get_bus_routes()
     selected, max_passengers, _ = optimize_bus_allocation(routes, req.budget)
 
@@ -417,7 +479,8 @@ def algo_bus_allocation(req: BusAllocationRequest):
 
 @app.post("/algorithms/road-maintenance")
 def algo_road_maintenance(req: RoadMaintenanceRequest):
-    assert graph is not None
+    if graph is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     roads = graph.get_all_edges(existing_only=True)
     selected, total_improvement = road_maintenance_allocation(roads, req.budget)
 
@@ -431,7 +494,8 @@ def algo_road_maintenance(req: RoadMaintenanceRequest):
 
 @app.post("/algorithms/traffic-signals")
 def algo_traffic_signals(req: TrafficSignalsRequest):
-    assert graph is not None
+    if graph is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     try:
         result = optimize_traffic_signals(graph, req.node_id, req.time_of_day)
     except KeyError as exc:
@@ -454,7 +518,8 @@ def algo_traffic_signals(req: TrafficSignalsRequest):
 
 @app.post("/algorithms/memoized-planner")
 def algo_memoized_planner(req: MemoizedPlannerRequest):
-    assert graph is not None
+    if graph is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     try:
         result = memoized_route_planner(graph, req.source, req.destinations, req.time_of_day)
     except KeyError as exc:
@@ -487,7 +552,8 @@ def algo_memoized_planner(req: MemoizedPlannerRequest):
 @app.post("/algorithms/airport-access")
 def algo_airport_access(req: AirportAccessRequest):
     """Find fastest route to Cairo International Airport from any node."""
-    assert graph is not None
+    if graph is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     try:
         result = route_to_airport(graph, req.source, req.time_of_day)
     except KeyError as exc:
@@ -504,7 +570,8 @@ def algo_airport_access(req: AirportAccessRequest):
 # ---------------------------------------------------------------------------
 @app.post("/simulation/rush-hour")
 def sim_rush_hour(req: RushHourRequest):
-    assert graph is not None and db is not None
+    if graph is None or db is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     try:
         result = Scenario.run_rush_hour(graph, req.time_of_day, db)
     except Exception as exc:
@@ -527,7 +594,8 @@ def sim_rush_hour(req: RushHourRequest):
 
 @app.post("/simulation/road-closure")
 def sim_road_closure(req: RoadClosureRequest):
-    assert graph is not None and db is not None
+    if graph is None or db is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     
     # Check if the road exists
     edge = graph.get_edge(req.from_node, req.to_node)
@@ -560,7 +628,8 @@ def sim_road_closure(req: RoadClosureRequest):
 
 @app.post("/simulation/new-road-analysis")
 def sim_new_road():
-    assert graph is not None and db is not None
+    if graph is None or db is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     try:
         result = Scenario.run_new_road_analysis(graph, db)
     except Exception as exc:
@@ -688,7 +757,8 @@ def visualization_race(req: AlgorithmRaceRequest):
     This endpoint calls visualization-only runners and does not modify the
     existing production algorithm implementations.
     """
-    assert graph is not None
+    if graph is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
     if req.source not in graph.nodes or req.target not in graph.nodes:
         raise HTTPException(status_code=400, detail="Invalid source or target node")
 
