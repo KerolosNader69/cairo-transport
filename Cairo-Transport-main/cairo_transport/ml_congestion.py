@@ -67,7 +67,8 @@ def _simulate_dataset(num_samples: int = 240, seed: int = 42) -> tuple[list[list
 
 def _load_project_dataset() -> tuple[list[list[float]], list[float]]:
     """Load training rows from the project's SQLite traffic tables."""
-    db_path = Path(os.environ.get("CAIRO_TRANSPORT_DB_PATH", Path(__file__).parent / "cairo_transport.db"))
+    from .database import DB_PATH
+    db_path = Path(DB_PATH)
     if not db_path.exists():
         return [], []
 

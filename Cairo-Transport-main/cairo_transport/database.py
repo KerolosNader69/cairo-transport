@@ -48,7 +48,10 @@ from .data import (
 )
 from .graph import TransportGraph
 
-DB_PATH = Path(os.environ.get("CAIRO_TRANSPORT_DB_PATH", Path(__file__).parent / "cairo_transport.db"))
+if os.environ.get("VERCEL"):
+    DB_PATH = "/tmp/cairo_transport.db"
+else:
+    DB_PATH = Path(os.environ.get("CAIRO_TRANSPORT_DB_PATH", Path(__file__).parent / "cairo_transport.db"))
 
 
 # ---------------------------------------------------------------------------
