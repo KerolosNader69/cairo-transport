@@ -18,6 +18,7 @@
       "src": "/api/(.*)",
       "dest": "Cairo-Transport-main/api.py"
     },
+    { "handle": "filesystem" },
     {
       "src": "/(.*)",
       "dest": "/index.html"
