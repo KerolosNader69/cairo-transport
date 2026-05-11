@@ -7,6 +7,8 @@ The following files have been created/updated for Vercel deployment:
 - ✅ `vercel.json` - Vercel configuration for routing and builds
 - ✅ `.vercelignore` - Files to exclude from deployment
 - ✅ `package.json` - Root package.json with build scripts
+- ✅ `api/index.py` - Vercel serverless function handler
+- ✅ `Cairo-Transport-main/api.py` - FastAPI backend (routes without /api prefix)
 - ✅ `frontend/package.json` - Updated with vercel-build script
 - ✅ `frontend/vite.config.ts` - Updated with build output directory
 - ✅ `requirements.txt` - Python dependencies for backend

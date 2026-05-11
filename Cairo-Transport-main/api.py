@@ -134,7 +134,7 @@ class AlgorithmRaceRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Network endpoints
 # ---------------------------------------------------------------------------
-@app.get("/api/network/summary")
+@app.get("/network/summary")
 def network_summary():
     """High-level graph statistics."""
     assert graph is not None
@@ -170,7 +170,7 @@ def network_summary():
     }
 
 
-@app.get("/api/network/nodes")
+@app.get("/network/nodes")
 def network_nodes():
     """Return all nodes with their full data."""
     assert graph is not None
@@ -190,7 +190,7 @@ def network_nodes():
     return result
 
 
-@app.get("/api/network/edges")
+@app.get("/network/edges")
 def network_edges():
     """Return all edges with traffic data."""
     assert graph is not None
@@ -212,25 +212,25 @@ def network_edges():
 # ---------------------------------------------------------------------------
 # Database endpoints
 # ---------------------------------------------------------------------------
-@app.get("/api/db/summary")
+@app.get("/db/summary")
 def db_summary():
     assert db is not None
     return db.network_summary()
 
 
-@app.get("/api/db/demand-pairs")
+@app.get("/db/demand-pairs")
 def db_demand_pairs():
     assert db is not None
     return db.top_demand_pairs(limit=10)
 
 
-@app.get("/api/db/bus-routes")
+@app.get("/db/bus-routes")
 def db_bus_routes():
     assert db is not None
     return db.get_bus_routes()
 
 
-@app.get("/api/db/all-contents")
+@app.get("/db/all-contents")
 def db_all_contents():
     """Return all database contents as JSON for the frontend."""
     assert db is not None
@@ -253,7 +253,7 @@ def db_all_contents():
 # ---------------------------------------------------------------------------
 # Algorithm endpoints
 # ---------------------------------------------------------------------------
-@app.post("/api/algorithms/shortest-path")
+@app.post("/algorithms/shortest-path")
 def algo_shortest_path(req: ShortestPathRequest):
     assert graph is not None
     try:
@@ -319,7 +319,7 @@ def algo_shortest_path(req: ShortestPathRequest):
     }
 
 
-@app.post("/api/algorithms/emergency-routing")
+@app.post("/algorithms/emergency-routing")
 def algo_emergency(req: EmergencyRequest):
     assert graph is not None
     try:
@@ -350,7 +350,7 @@ def algo_emergency(req: EmergencyRequest):
     }
 
 
-@app.post("/api/algorithms/mst")
+@app.post("/algorithms/mst")
 def algo_mst():
     assert graph is not None
     result = modified_kruskal_mst(graph)
@@ -381,7 +381,7 @@ def algo_mst():
     }
 
 
-@app.post("/api/algorithms/bus-allocation")
+@app.post("/algorithms/bus-allocation")
 def algo_bus_allocation(req: BusAllocationRequest):
     assert db is not None
     routes = db.get_bus_routes()
@@ -395,7 +395,7 @@ def algo_bus_allocation(req: BusAllocationRequest):
     }
 
 
-@app.post("/api/algorithms/road-maintenance")
+@app.post("/algorithms/road-maintenance")
 def algo_road_maintenance(req: RoadMaintenanceRequest):
     assert graph is not None
     roads = graph.get_all_edges(existing_only=True)
@@ -409,7 +409,7 @@ def algo_road_maintenance(req: RoadMaintenanceRequest):
     }
 
 
-@app.post("/api/algorithms/traffic-signals")
+@app.post("/algorithms/traffic-signals")
 def algo_traffic_signals(req: TrafficSignalsRequest):
     assert graph is not None
     try:
@@ -432,7 +432,7 @@ def algo_traffic_signals(req: TrafficSignalsRequest):
     }
 
 
-@app.post("/api/algorithms/memoized-planner")
+@app.post("/algorithms/memoized-planner")
 def algo_memoized_planner(req: MemoizedPlannerRequest):
     assert graph is not None
     try:
@@ -464,7 +464,7 @@ def algo_memoized_planner(req: MemoizedPlannerRequest):
     }
 
 
-@app.post("/api/algorithms/airport-access")
+@app.post("/algorithms/airport-access")
 def algo_airport_access(req: AirportAccessRequest):
     """Find fastest route to Cairo International Airport from any node."""
     assert graph is not None
@@ -482,7 +482,7 @@ def algo_airport_access(req: AirportAccessRequest):
 # ---------------------------------------------------------------------------
 # Simulation endpoints
 # ---------------------------------------------------------------------------
-@app.post("/api/simulation/rush-hour")
+@app.post("/simulation/rush-hour")
 def sim_rush_hour(req: RushHourRequest):
     assert graph is not None and db is not None
     try:
@@ -505,7 +505,7 @@ def sim_rush_hour(req: RushHourRequest):
     }
 
 
-@app.post("/api/simulation/road-closure")
+@app.post("/simulation/road-closure")
 def sim_road_closure(req: RoadClosureRequest):
     assert graph is not None and db is not None
     
@@ -538,7 +538,7 @@ def sim_road_closure(req: RoadClosureRequest):
     }
 
 
-@app.post("/api/simulation/new-road-analysis")
+@app.post("/simulation/new-road-analysis")
 def sim_new_road():
     assert graph is not None and db is not None
     try:
@@ -558,7 +558,7 @@ def sim_new_road():
 # ---------------------------------------------------------------------------
 # Machine-learning endpoints
 # ---------------------------------------------------------------------------
-@app.get("/api/ml/congestion-model")
+@app.get("/ml/congestion-model")
 def ml_congestion_model():
     """Train the congestion model and return evaluation details for the UI."""
     artifacts = train_congestion_model()
@@ -619,7 +619,7 @@ def ml_congestion_model():
     }
 
 
-@app.post("/api/ml/predict-congestion")
+@app.post("/ml/predict-congestion")
 def ml_predict_congestion(req: CongestionPredictionRequest):
     """Predict congestion for user-provided road conditions."""
     artifacts = train_congestion_model()
@@ -661,7 +661,7 @@ def ml_predict_congestion(req: CongestionPredictionRequest):
 # ---------------------------------------------------------------------------
 # Visualization endpoints
 # ---------------------------------------------------------------------------
-@app.post("/api/visualization/race")
+@app.post("/visualization/race")
 def visualization_race(req: AlgorithmRaceRequest):
     """Return side-by-side algorithm traces for the race visualizer.
 

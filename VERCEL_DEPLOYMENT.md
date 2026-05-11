@@ -103,6 +103,14 @@ To use a persistent database instead of SQLite:
 
 ## Troubleshooting
 
+### 500 Error on Network Data Load
+
+If you see "Failed to load network data: Request failed with status code 500":
+- This was caused by double `/api/` prefix in routes
+- Fixed by removing `/api/` prefix from FastAPI routes in `Cairo-Transport-main/api.py`
+- Vercel routing adds the `/api/` prefix automatically via `vercel.json`
+- The serverless handler is now in `api/index.py` which imports the FastAPI app
+
 ### Build Fails
 
 - Check build logs in Vercel Dashboard
