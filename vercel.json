@@ -5,18 +5,18 @@
       "src": "package.json",
       "use": "@vercel/static-build",
       "config": {
-        "distDir": "frontend/dist"
+        "distDir": "Cairo-Transport-main/frontend/dist"
       }
     },
     {
-      "src": "api.py",
+      "src": "Cairo-Transport-main/api.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "api.py"
+      "dest": "Cairo-Transport-main/api.py"
     },
     {
       "src": "/(.*)",
