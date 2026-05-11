@@ -1,0 +1,31 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.venv/
+venv/
+ENV/
+env/
+
+# Frontend
+frontend/node_modules/
+frontend/.npm-cache/
+frontend/dist/
+
+# Output and logs
+output/
+*.log
+*.err
+
+# Database
+*.db
+
+# Tests
+tests/
