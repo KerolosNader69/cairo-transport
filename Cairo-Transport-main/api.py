@@ -38,13 +38,18 @@ from cairo_transport.visual_runners import run_visual_trace
 # ---------------------------------------------------------------------------
 db: TransportDB | None = None
 graph: TransportGraph | None = None
+_initialized = False
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global db, graph
+def initialize_app():
+    """Initialize database and graph. Called on first request."""
+    global db, graph, _initialized
+    if _initialized:
+        return
+    
     import sqlite3
     from cairo_transport.database import DB_PATH
+    
     # Create DB with check_same_thread=False so FastAPI threadpool can access it
     db = TransportDB.__new__(TransportDB)
     db.db_path = DB_PATH
@@ -54,7 +59,14 @@ async def lifespan(app: FastAPI):
     db._apply_schema()
     db.seed_from_data_module()
     graph = db.build_graph()
+    _initialized = True
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    initialize_app()
     yield
+    global db
     if db is not None:
         db.close()
 
@@ -68,6 +80,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def ensure_initialized(request, call_next):
+    """Ensure database is initialized before handling requests."""
+    initialize_app()
+    response = await call_next(request)
+    return response
 
 
 # ---------------------------------------------------------------------------
